@@ -365,7 +365,7 @@ export function Sidebar({ mobileOpen, onMobileClose, ...props }) {
         aria-label="Sidebar"
         inert={hiddenOffCanvas}
         className={cx(
-          "fixed inset-y-0 left-0 z-40 w-[86%] max-w-[300px] border-r border-line bg-canvas shadow-pop",
+          "fixed inset-y-0 left-0 z-40 w-[86%] max-w-75 border-r border-line bg-canvas shadow-pop",
           "transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
           "lg:static lg:z-auto lg:w-[288px] lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:shadow-none",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
