@@ -6,7 +6,7 @@ export function formatTime(date) {
   return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
 }
 
-/** "gemini/gemini-2.5-flash" -> { provider: "gemini", name: "gemini-2.5-flash" } */
+/** "gemini/gemini-3.5-flash-lite" -> { provider: "gemini", name: "gemini-3.5-flash-lite" } */
 export function splitModel(model = "") {
   const i = model.indexOf("/");
   return i === -1 ? { provider: "", name: model } : { provider: model.slice(0, i), name: model.slice(i + 1) };

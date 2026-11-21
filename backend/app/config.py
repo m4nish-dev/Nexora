@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # --- LLM gateway -------------------------------------------------------
     llm_api_keys: str = Field(default="", description="Comma-separated key pool; ids are key_1..key_n in order")
-    llm_model: str = Field(default="gemini/gemini-2.5-flash", description="LiteLLM model used by every key")
+    llm_model: str = Field(default="gemini/gemini-3.5-flash-lite", description="LiteLLM model used by every key")
     llm_key_models: str = Field(
         default="",
         description="Optional comma-separated per-key models aligned with LLM_API_KEYS (blank entries fall back to LLM_MODEL)",

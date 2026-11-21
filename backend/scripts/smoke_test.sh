@@ -20,7 +20,7 @@ post() {
   local hdr=()
   [ -n "${3:-}" ] && hdr=(-H "X-Simulate-Failure: $3")
   local out
-  out=$(curl -s -w $'\n%{http_code}' -X POST "$BASE/chat" -H 'Content-Type: application/json' "${hdr[@]}" \
+  out=$(curl -s -w $'\n%{http_code}' -X POST "$BASE/chat" -H 'Content-Type: application/json' ${hdr[@]+"${hdr[@]}"} \
     -d "{\"session_id\": \"$1\", \"message\": \"$2\"}")
   STATUS="${out##*$'\n'}"
   BODY="${out%$'\n'*}"

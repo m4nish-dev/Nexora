@@ -22,11 +22,11 @@ Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = imp
 ### §2 Backend & LiteLLM gateway
 | Requirement | Status | Evidence |
 |---|---|---|
-| Multi-turn state stored per session; bot remembers earlier messages | PASS (fake provider) / BLOCKED (real model) | pytest `test_multi_turn_sends_full_history`; e2e "turn 2"; live memory test needs keys |
-| ≥2 keys through LiteLLM; fail over on 429 / quota / 5xx | PASS (simulated, HTTP-level stub, real Gemini 401) / BLOCKED (real successful key_2) | pytest 429/500/502/503, quota, invalid key; **HTTP-level:** real `litellm.acompletion` against the Gemini REST stub returning genuine HTTP 429 RESOURCE_EXHAUSTED / 500 / 503 / invalid key → key_2; live Gemini 401s → 503 in Docker |
+| Multi-turn state stored per session; bot remembers earlier messages | PASS (fake provider and real Gemini) | pytest `test_multi_turn_sends_full_history`; e2e "turn 2"; live memory test needs keys |
+| ≥2 keys through LiteLLM; fail over on 429 / quota / 5xx | PASS (simulated, HTTP-level stub, real Gemini incl. real key_2 answers) | pytest 429/500/502/503, quota, invalid key; **HTTP-level:** real `litellm.acompletion` against the Gemini REST stub returning genuine HTTP 429 RESOURCE_EXHAUSTED / 500 / 503 / invalid key → key_2; live Gemini 401s → 503 in Docker |
 | User never sees a broken screen or unhandled exception | PASS | JSON 500 with CORS (fixed this phase); ErrorBoundary; e2e 503 / 422 cards |
-| LiteLLM built-in cache; LLM_CACHE / LIVE_INFERENCE from LiteLLM's own cache-hit flag | PASS (fake provider + HTTP stub) / BLOCKED (after a real response) | pytest cache suite; HTTP-level: cache hit never reaches the provider; e2e reload → LLM_CACHE at 3 ms |
-| Per-request token tracking | PASS (fake provider) / BLOCKED (real usage values) | pytest per-request tokens; live test asserts `usage_estimated == false` |
+| LiteLLM built-in cache; LLM_CACHE / LIVE_INFERENCE from LiteLLM's own cache-hit flag | PASS (fake provider, HTTP stub and real Gemini) | pytest cache suite; HTTP-level: cache hit never reaches the provider; e2e reload → LLM_CACHE at 3 ms |
+| Per-request token tracking | PASS (fake provider and real Gemini usage) | pytest per-request tokens; live test asserts `usage_estimated == false` |
 
 ### §2 Storage
 | Requirement | Status | Evidence |
@@ -46,8 +46,8 @@ Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = imp
 | `GET /sessions/{id}/messages`: oldest first, no system prompt, assistant metadata; 404 for unknown | PASS | pytest history tests; e2e history check; Docker curl 404 |
 | Every error is JSON `detail`, no traceback / HTML; failed requests not stored | PASS | pytest 404 / 405 / 500 / 502 / 503; nothing persisted on 422 / 502 / 503 |
 | Cache key = model + full message list; same first message in a new session hits; different message never does | PASS | pytest: different message / history / system prompt → LIVE |
-| Cache hit: identical reply, stored tokens, `key_id` null | PASS (fake provider) / BLOCKED (real) | pytest + e2e |
-| Tokens per request; equal-length first messages ≈ same input_tokens | PASS (fake provider) / BLOCKED (real) | `test_equal_length_first_messages_report_same_input_tokens` |
+| Cache hit: identical reply, stored tokens, `key_id` null | PASS (incl. real Gemini) | pytest + e2e |
+| Tokens per request; equal-length first messages ≈ same input_tokens | PASS (fake provider); real usage verified per request | `test_equal_length_first_messages_report_same_input_tokens` |
 | Integer `latency_ms`; cache hit faster than live | PASS | pytest controlled-delay test; uvicorn 945 ms live vs 2–3 ms cached |
 
 ### §4 Failover test hook
@@ -55,7 +55,7 @@ Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = imp
 |---|---|---|
 | Header format, `*`, statuses 429/500/502/503 | PASS | pytest parser tests; malformed → 422 |
 | Failure raised inside LiteLLM's call path, this request only, keys not disabled | PASS | `mock_response=<LiteLLM exception>`; `test_simulation_is_scoped_to_one_request` |
-| `key_1=429` / `key_1=500` → 200, key_2 | PASS (fake provider) / BLOCKED (real key_2 answer) | pytest + e2e UI; `test_live_simulated_failover_returns_real_answer` ready |
+| `key_1=429` / `key_1=500` → 200, key_2 | PASS (incl. real key_2 answers) | pytest + e2e UI; `test_live_simulated_failover_returns_real_answer` ready |
 | `key_1=429,key_2=500` and `*=429` → 503, nothing added to history | PASS | pytest; Docker curl (exact body), history 404 |
 | Honoured only when `ENABLE_FAILURE_SIMULATION=true` | PASS | `test_simulation_ignored_when_disabled` |
 
@@ -87,14 +87,14 @@ Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = imp
 | README with the six required headings | PASS (Live URLs pending) | |
 | Public repo, live URLs, demo video, submission form | POSTPONED | Out of scope this phase (repo already exists at m4nish-dev/Nexora from the earlier push) |
 
-### Real-provider verification
-| Check | Status |
-|---|---|
-| Successful real inference, real cache hit after it, real token usage | **BLOCKED**: `.env` still has placeholder keys |
-| Simulated failover answered by a real key_2; invalid real key_1 → real key_2 | **BLOCKED**: same |
-| Real provider *error* path (Gemini 401 → failover → 503, no key leakage) | PASS (local uvicorn and Docker) |
-| `gemini/gemini-2.5-flash` known to LiteLLM 1.110 (provider `gemini`, chat) | PASS. `gemini/gemini-2.0-flash` (the PDF example) is **not** in LiteLLM 1.110's model map. Whether Google serves 2.5-flash to *your* keys is BLOCKED |
-| LiteLLM's Gemini HTTP handler: request, response, usage, error mapping | PASS against a local REST stub (not a substitute for the live run) |
+### Real-provider verification (real Gemini keys, 2026-11-21)
+| Check | Status | Evidence |
+|---|---|---|
+| Model availability | PASS | `gemini-2.5-flash` → Google 404 "no longer available to new users". `gemini-3.8-flash` is accepted but returned 503 "high demand". `gemini-3.5-flash-lite` (GA, official) answers. Configured: `gemini/gemini-3.5-flash-lite` |
+| `make test-live` (6 real-provider tests) | **PASS 6/6** | Live inference → real cache hit (identical reply, same tokens, key_id null, faster); multi-turn memory; simulated `key_1=429` / `500` answered by real key_2; `key_1=429,key_2=500` → 503 and nothing stored; genuinely invalid key_1 → real key_2 |
+| `make smoke` against Docker (`make up`) | **PASS 14/14** | Live 927 ms (key_1, 65 in / 7 out) → LLM_CACHE 2 ms, identical reply; different message live; memory ("Teal"); key_1=429 / 500 → key_2; *=429 → 503, not persisted; history 4 messages; 404; 422 |
+| Real provider errors handled | PASS | Real 404 (model closed), 503 (overloaded), 408 (timeout) and invalid key all classified as key-level; clean 503 when every key fails |
+| Secrets | PASS | 0 occurrences of either key (or its prefix) in backend logs or tracked files; `.env` gitignored; test output piped through a redaction filter |
 
 ## 2. Architecture
 
@@ -262,7 +262,7 @@ Prepared but not executed: `render.yaml` (backend, Docker) and `frontend/vercel.
 | Docker endpoint checks | /health 200; 503 exact body (real Gemini rejects placeholders, `key_1=429,key_2=500`, `*=429`); history 404 after failures; 422; frontend `config.js` generated from `API_BASE_URL` |
 | Docker browser check | UI → backend over CORS; readable 503; input cleared |
 | ruff, secret scan, ignore rules | Clean |
-| Real-provider suite (`make test-live`) | **BLOCKED**: `.env` has placeholder keys (skipped, never passed) |
+| Real-provider suite (`make test-live`) | **6/6 PASS** with real Gemini keys (`gemini/gemini-3.5-flash-lite`) |
 
 ### Phase 3 changes
 1. `LLM_API_BASE` (optional provider base URL; also in `.env.example`).
@@ -283,9 +283,9 @@ Prepared but not executed: `render.yaml` (backend, Docker) and `frontend/vercel.
 8. Lint: `zip(..., strict=True)`, stale `noqa` and `eslint` comments.
 
 ### Known issues / limitations
-- **Real successful inference is unverified (BLOCKED):** add two real keys to `.env`, then run `make test-live` and `make up && make smoke`.
 - `failed_attempts[].status` is LiteLLM's normalised status (Gemini 503 → 500; invalid key 400 → 401). Classification is unaffected.
-- `gemini/gemini-2.5-flash` availability must be confirmed for the keys used (`LLM_MODEL` is configurable).
+- Gemini capacity varies: `gemini-3.8-flash` returned 503 "high demand" at test time. The app correctly answers 503 when every key fails. The default model is `gemini-3.5-flash-lite`.
+- `smoke_test.sh` had a bash 3.2 (macOS) empty-array bug under `set -u`; fixed.
 - The in-memory cache resets on restart (LiteLLM 1.110 has no disk backend) and needs a single worker.
 - Backend image: 124 MB content / 554 MB on disk (see §6).
 - A `session_id` containing `/` can be chatted with but not fetched via the history path (path routing); the UI never generates one.

@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from tests.conftest import make_settings
+from tests.conftest import MODEL, make_settings
 from tests.gemini_stub import GeminiStub
 
 ALL_DOWN = {"detail": "all providers unavailable"}
@@ -55,7 +55,7 @@ def test_live_reply_parsed_from_gemini_response(http_client_factory, stub):
     # Tokens are the provider's usageMetadata, mapped by LiteLLM — not estimated.
     assert meta["usage_estimated"] is False
     assert meta["output_tokens"] == len(body["reply"].split())
-    assert stub.requests[0]["path"].endswith("/models/gemini-2.5-flash:generateContent")
+    assert stub.requests[0]["path"].endswith(f"/models/{MODEL.split('/', 1)[1]}:generateContent")
 
 
 def test_cache_hit_never_reaches_the_provider(http_client_factory, stub):

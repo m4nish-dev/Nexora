@@ -82,10 +82,17 @@ npm run test:e2e                                     # 14 browser tests
 
 ### Environment variables
 
+> **Model choice (verified 2026-11-21):** the default is `gemini/gemini-3.5-flash-lite`.
+> - Google now returns HTTP 404 *"no longer available to new users"* for `gemini-2.5-flash` on new API keys.
+> - [Gemini 3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite) and [Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) are both GA and recommended for new projects.
+> - 3.8 Flash accepted these keys but answered *"high demand"* (503) at test time, while 3.5 Flash-Lite answered in about 1 s.
+> - To use 3.8 Flash when Google has capacity, set `LLM_MODEL=gemini/gemini-3.8-flash`.
+
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `LLM_API_KEYS` | (none) | **Required.** Comma-separated key pool; ids are `key_1`, `key_2`, … in order |
-| `LLM_MODEL` | `gemini/gemini-2.5-flash` | LiteLLM model used by every key |
+| `LLM_MODEL` | `gemini/gemini-3.5-flash-lite` | LiteLLM model used by every key |
 | `LLM_KEY_MODELS` | (empty) | Optional per-key models aligned with the keys (multi-provider pools); blanks fall back to `LLM_MODEL` |
 | `DATABASE_URL` | `sqlite:////data/app.db` (Docker) | SQLite location |
 | `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated CORS origins (`*` allowed) |

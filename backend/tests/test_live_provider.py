@@ -2,7 +2,7 @@
 
 Opt-in only (they cost tokens and need network):
 
-    NEXORA_LIVE=1 LLM_API_KEYS="real-key-1,real-key-2" LLM_MODEL=gemini/gemini-2.5-flash \
+    NEXORA_LIVE=1 LLM_API_KEYS="real-key-1,real-key-2" LLM_MODEL=gemini/gemini-3.5-flash-lite \
         .venv/bin/python -m pytest -m live -v
     # or: make test-live   (reads the repo-root .env)
 
@@ -23,7 +23,7 @@ from app.main import create_app
 pytestmark = pytest.mark.live
 
 _KEYS = [k.strip() for k in os.environ.get("LLM_API_KEYS", "").split(",") if k.strip()]
-_MODEL = os.environ.get("LLM_MODEL", "gemini/gemini-2.5-flash")
+_MODEL = os.environ.get("LLM_MODEL", "gemini/gemini-3.5-flash-lite")
 _PLACEHOLDER = any(k.startswith("your-") for k in _KEYS)
 
 if os.environ.get("NEXORA_LIVE") != "1":

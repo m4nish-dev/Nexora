@@ -87,7 +87,7 @@ class GeminiStub:
                             "candidatesTokenCount": len(reply.split()),
                             "totalTokenCount": prompt_tokens + len(reply.split()),
                         },
-                        "modelVersion": "gemini-2.5-flash",
+                        "modelVersion": "gemini-3.5-flash-lite",
                     },
                 )
 

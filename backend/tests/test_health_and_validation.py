@@ -139,8 +139,10 @@ def test_database_url_parsing():
 
 
 def test_per_key_models(client_factory):
+    from tests.conftest import MODEL
+
     client = client_factory(llm_api_keys="a,b", llm_key_models=",openai/gpt-4o-mini")
-    assert client.get("/health").json()["models"] == ["gemini/gemini-2.5-flash", "openai/gpt-4o-mini"]
+    assert client.get("/health").json()["models"] == [MODEL, "openai/gpt-4o-mini"]
 
 
 def test_session_id_is_echoed_verbatim(client):

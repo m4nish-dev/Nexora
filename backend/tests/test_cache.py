@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.conftest import chat
+from tests.conftest import MODEL, chat
 
 
 def test_first_live_then_cache_hit_in_new_session(client, provider):
@@ -24,7 +24,7 @@ def test_cache_hit_has_null_key_and_zero_fallbacks(client):
     meta = chat(client, "s-c2", "hello cache").json()["metadata"]
     assert meta["key_id"] is None
     assert meta["fallback_attempts"] == 0
-    assert meta["model"] == "gemini/gemini-2.5-flash"
+    assert meta["model"] == MODEL
 
 
 def test_different_message_never_served_from_cache(client):

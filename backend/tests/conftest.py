@@ -21,7 +21,7 @@ from app.main import create_app
 
 KEY_1 = "test-secret-key-one"
 KEY_2 = "test-secret-key-two"
-MODEL = "gemini/gemini-2.5-flash"
+MODEL = "gemini/gemini-3.5-flash-lite"
 
 
 def fake_token_count(messages: list[dict[str, str]]) -> int:
