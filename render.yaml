@@ -1,0 +1,26 @@
+# Render Blueprint for the backend (Docker). Secrets are entered in the Render dashboard (sync: false).
+services:
+  - type: web
+    name: nexora-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: LLM_API_KEYS
+        sync: false
+      - key: LLM_MODEL
+        value: gemini/gemini-2.5-flash
+      - key: ALLOWED_ORIGINS
+        sync: false # e.g. https://nexora.vercel.app
+      - key: ENABLE_FAILURE_SIMULATION
+        value: "true"
+      - key: DATABASE_URL
+        value: sqlite:////data/app.db
+    # Persistent disks need a paid instance. On the free plan /data is ephemeral: SQLite works,
+    # but history resets on redeploy/restart. Uncomment on a paid plan for durable history:
+    # disk:
+    #   name: nexora-data
+    #   mountPath: /data
+    #   sizeGB: 1

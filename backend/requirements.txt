@@ -1,0 +1,10 @@
+# Runtime dependencies (pinned for reproducible builds).
+fastapi==0.165.0
+uvicorn==0.54.0
+pydantic==2.14.4
+pydantic-settings==2.16.3
+litellm==1.110.2
+# LiteLLM 1.110's cache-hit path transitively imports modules from its proxy package,
+# which need these two (verified: a cache hit raises ModuleNotFoundError without them).
+orjson==3.13.0
+soundfile==0.14.0

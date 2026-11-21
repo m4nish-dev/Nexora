@@ -1,0 +1,35 @@
+name: nexora
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: nexora-backend:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/app.db}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      ENABLE_FAILURE_SIMULATION: ${ENABLE_FAILURE_SIMULATION:-true}
+    ports:
+      - "8000:8000"
+    volumes:
+      - nexora-data:/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    image: nexora-frontend:latest
+    environment:
+      # URL the *browser* uses to reach the backend.
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  nexora-data:

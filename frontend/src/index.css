@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Design tokens. Components only use these semantic names, never raw colours. */
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-elevated: var(--elevated);
+  --color-subtle: var(--subtle);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-cache: var(--cache);
+  --color-cache-soft: var(--cache-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 1px rgb(0 0 0 / 0.02);
+  --shadow-pop: 0 12px 32px -12px rgb(0 0 0 / 0.18), 0 2px 6px -2px rgb(0 0 0 / 0.08);
+  --shadow-composer: 0 8px 28px -14px rgb(0 0 0 / 0.22), 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+:root {
+  color-scheme: light;
+  --canvas: #fafafa;
+  --panel: #ffffff;
+  --elevated: #ffffff;
+  --subtle: #f3f3f4;
+  --line: #e8e8eb;
+  --line-strong: #d6d6db;
+  --fg: #17171a;
+  --fg-muted: #5f5f69;
+  --fg-faint: #94949e;
+  --accent: #5b5bd6;
+  --accent-hover: #4f4fc8;
+  --accent-fg: #ffffff;
+  --accent-soft: #efefff;
+  --cache: #0d8f6a;
+  --cache-soft: #e5f5ef;
+  --warn: #a8670d;
+  --warn-soft: #fcf3e3;
+  --danger: #c93a32;
+  --danger-soft: #fcecea;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0b0b0d;
+  --panel: #101013;
+  --elevated: #16161a;
+  --subtle: #1b1b20;
+  --line: #232329;
+  --line-strong: #31313a;
+  --fg: #ececef;
+  --fg-muted: #a1a1ac;
+  --fg-faint: #696974;
+  --accent: #7c7ff2;
+  --accent-hover: #8f92f6;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(124 127 242 / 0.14);
+  --cache: #3cc79c;
+  --cache-soft: rgb(60 199 156 / 0.12);
+  --warn: #e3ac4f;
+  --warn-soft: rgb(227 172 79 / 0.12);
+  --danger: #f0716a;
+  --danger-soft: rgb(240 113 106 / 0.12);
+  --shadow-composer: 0 10px 30px -12px rgb(0 0 0 / 0.6), 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-canvas text-fg font-sans antialiased;
+    font-feature-settings: "ss01", "cv11";
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--fg);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+}
+
+/* Markdown inside assistant replies. Hand-tuned rather than a typography plugin to keep the bundle lean. */
+@layer components {
+  .prose-chat {
+    @apply text-[15px] leading-7 text-fg;
+    overflow-wrap: anywhere;
+  }
+  .prose-chat > :first-child {
+    margin-top: 0;
+  }
+  .prose-chat > :last-child {
+    margin-bottom: 0;
+  }
+  .prose-chat p {
+    @apply my-3;
+  }
+  .prose-chat h1,
+  .prose-chat h2,
+  .prose-chat h3,
+  .prose-chat h4 {
+    @apply mt-6 mb-2 font-semibold tracking-tight text-fg;
+  }
+  .prose-chat h1 {
+    @apply text-xl;
+  }
+  .prose-chat h2 {
+    @apply text-lg;
+  }
+  .prose-chat h3,
+  .prose-chat h4 {
+    @apply text-base;
+  }
+  .prose-chat ul,
+  .prose-chat ol {
+    @apply my-3 pl-6;
+  }
+  .prose-chat ul {
+    @apply list-disc;
+  }
+  .prose-chat ol {
+    @apply list-decimal;
+  }
+  .prose-chat li {
+    @apply my-1 pl-1;
+  }
+  .prose-chat li::marker {
+    color: var(--fg-faint);
+  }
+  .prose-chat a {
+    @apply text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent;
+  }
+  .prose-chat strong {
+    @apply font-semibold text-fg;
+  }
+  .prose-chat blockquote {
+    @apply my-3 border-l-2 border-line-strong pl-4 text-fg-muted;
+  }
+  .prose-chat hr {
+    @apply my-6 border-line;
+  }
+  .prose-chat :not(pre) > code {
+    @apply rounded-md border border-line bg-subtle px-1.5 py-0.5 font-mono text-[0.85em];
+  }
+  .prose-chat pre {
+    @apply my-4 overflow-x-auto rounded-xl border border-line bg-subtle p-4 font-mono text-[13px] leading-6;
+  }
+  .prose-chat table {
+    @apply my-4 block w-full overflow-x-auto border-collapse text-sm;
+  }
+  .prose-chat th,
+  .prose-chat td {
+    @apply border border-line px-3 py-1.5 text-left;
+  }
+  .prose-chat th {
+    @apply bg-subtle font-medium;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
