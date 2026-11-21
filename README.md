@@ -50,6 +50,7 @@ make up                     # builds and starts both services
 |---|---|
 | `make test` | Backend test suite (uses `backend/.venv` if present, otherwise runs inside Docker) |
 | `make test-e2e` | Playwright browser suite against a test-only backend on ports 8100/3100 |
+| `make test-image` | Smoke test *inside* the production backend image (native extensions, real LiteLLM Gemini handler vs a local HTTP stub) |
 | `make test-live` | Real-provider tests with the keys in `.env` (costs tokens) |
 | `make smoke` | curl checks against a running backend (`BASE_URL=…` to override) |
 | `make logs` / `make ps` | Container logs / status |
@@ -66,7 +67,7 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 export LLM_API_KEYS="key-one,key-two" DATABASE_URL="sqlite:///./data/app.db" ENABLE_FAILURE_SIMULATION=true
 uvicorn app.main:app --port 8000
-pytest -q                   # 89 tests (+ opt-in live suite), no network needed
+pytest -q                   # 98 tests (+ opt-in live suite), no internet needed
 ```
 
 Frontend (Node 20+):
@@ -91,6 +92,7 @@ npm run test:e2e                                     # 14 browser tests
 | `ENABLE_FAILURE_SIMULATION` | `false` (compose sets `true`) | Enables the `X-Simulate-Failure` hook |
 | `LLM_TIMEOUT_SECONDS` | `30` | Per-attempt provider timeout |
 | `LLM_MAX_OUTPUT_TOKENS` | provider default | Optional output cap |
+| `LLM_API_BASE` | provider default | Optional provider base-URL override (corporate proxy / gateway; also used by the HTTP-level tests) |
 | `CACHE_ENABLED` / `CACHE_TTL_SECONDS` / `CACHE_MAX_ITEMS` | `true` / `86400` / `1000` | LiteLLM cache settings |
 | `DEFAULT_SYSTEM_PROMPT` | built-in | Default system prompt |
 | `LOG_LEVEL` | `INFO` | Backend log level |
@@ -171,10 +173,12 @@ For a targeted key, the gateway passes the matching **LiteLLM exception as `mock
 - **`session_id`** is echoed back verbatim, per the contract's "echo of the request value". A whitespace-only id is rejected with 422.
 - **Frontend runtime config:** the nginx container writes `config.js` from `API_BASE_URL` at start, so one image works anywhere. Vercel uses `VITE_API_BASE_URL` at build time.
 - **Images:**
-  - Backend: multi-stage, a slim runtime with only the venv and app, a non-root user, and no bytecode, pip, or LiteLLM proxy UI assets (820 MB → 597 MB).
-    - The rest is LiteLLM's own dependency tree: `openai`, `boto3`, `tokenizers`, `huggingface_hub`, plus `numpy`, which comes in through `soundfile` on LiteLLM's cache-hit import path.
-    - A separate `test` stage runs the suite and is never part of the runtime image.
-  - Frontend: multi-stage, unprivileged nginx at about 90 MB.
+  - Backend: multi-stage. The runtime holds only the venv and app, runs as a non-root user, and has no bytecode, pip, `hf-xet`, debug symbols in native extensions, or LiteLLM proxy-UI assets. The builder-only binutils never ships, and a separate `test` stage runs the suite.
+    - Measured: **124 MB content size** (what a registry stores and a host pulls), down from 134 MB.
+    - On disk, containerd reports 554 MB: the unpacked filesystem plus the compressed blobs.
+    - The floor is LiteLLM's declared dependency tree. `openai`, `boto3`/`botocore`, `tokenizers`, `huggingface_hub` and `aiohttp` are all *required* by LiteLLM, and `numpy` is required by `soundfile`, which LiteLLM's cache-hit path imports.
+    - I kept those deliberately, because removing a declared dependency trades a few MB for a hidden runtime `ImportError`. `make test-image` verifies every trim inside the image.
+  - Frontend: multi-stage, unprivileged nginx. 26 MB content size (91 MB on disk).
 
 ---
 
@@ -220,9 +224,9 @@ curl -s $B/sessions/s-1/messages
 
 ### Automated tests
 
-There are three suites, kept deliberately separate so mocked results are never mistaken for real inference.
+The suites are kept deliberately separate so mocked or stubbed results are never mistaken for real inference.
 
-**1. Backend: `make test` (89 tests, no network).**
+**1. Backend: `make test` (98 tests, no internet).**
 - **Health:** ok, DB down, no keys, key count, cache flag.
 - **Validation:** empty or whitespace message, more than 4000 characters (counted after trimming), session id bounds, wrong types, malformed JSON.
 - **Chat:** contract shape, multi-turn context, per-request tokens, system prompt handling.
@@ -231,7 +235,17 @@ There are three suites, kept deliberately separate so mocked results are never m
 - **Persistence:** isolation, ordering, restart survival, schema, nothing persisted on failure, concurrent same-session turns.
 - **HTTP hygiene:** verbatim `session_id` echo, JSON 405, JSON 500 with CORS headers, CORS allow and deny.
 
-Provider responses are injected through LiteLLM's own `mock_response`, so the real LiteLLM cache and exception code runs in every test.
+Most tests inject provider responses through LiteLLM's own `mock_response`, so the real LiteLLM cache and exception code runs in every test.
+
+`tests/test_gemini_http_contract.py` (9 tests) goes one level deeper. It uses the **production completion path** (`litellm.acompletion`, no mock), speaking real HTTP to a local Gemini REST stub ([backend/tests/gemini_stub.py](backend/tests/gemini_stub.py)). That exercises LiteLLM's actual Gemini handler:
+- request building, including history and system prompt
+- response parsing and `usageMetadata` → token mapping
+- cache hits that never reach the provider
+- failover on **genuine HTTP** 429 `RESOURCE_EXHAUSTED`, 500, 503 and invalid-key responses
+
+LiteLLM reports these as normalised statuses: Gemini's 503 becomes `InternalServerError`/500, and its 400 "API key not valid" becomes `AuthenticationError`/401. `failed_attempts.status` shows that normalised value.
+
+**Image smoke: `make test-image`.** Runs inside the production runtime image. It loads every native extension (the image's `.so` files are stripped), then drives the app through the real Gemini handler against the stub: live, cache, multi-turn, simulation, a real HTTP 429 failover, 503 and 422.
 
 **2. Browser: `make test-e2e` (14 Playwright tests).** These run against the built frontend and `backend/tests/e2e_server.py`, a test-only server that is the real app with the same fake provider. They cover:
 - every `data-testid`
@@ -303,8 +317,9 @@ backend/
       llm_gateway.py         LiteLLM cache + ordered failover + classification
       chat_service.py        orchestration, per-session locks
     routers/                 health, chat, sessions
-  tests/                     pytest suite (89 tests) + opt-in live suite + e2e_server.py (test-only)
-  scripts/smoke_test.sh      live end-to-end check
+  tests/                     pytest suite (98 tests), opt-in live suite, Gemini HTTP stub, e2e_server.py (test-only)
+  scripts/smoke_test.sh      live end-to-end curl check
+  scripts/image_smoke.py     runtime-image smoke test (make test-image)
   Dockerfile
 frontend/
   src/

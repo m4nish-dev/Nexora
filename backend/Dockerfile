@@ -3,14 +3,24 @@
 # ---- build stage: resolve and install dependencies into an isolated venv ----
 FROM python:3.12-slim AS builder
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+# binutils (strip) is needed only here; it never reaches the runtime image.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends binutils \
+ && rm -r /var/lib/apt/lists/*
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 COPY requirements.txt /tmp/requirements.txt
-# Trim the runtime venv: no bytecode (~110 MB; compiled lazily in memory at startup), no installer
-# tooling, and no LiteLLM proxy admin-UI static bundle (we use the SDK, never the proxy server).
+# Trim the runtime venv (every step verified by `make test-image`):
+#  - no bytecode (~110 MB; compiled in memory at startup)
+#  - hf-xet: optional Hugging Face download accelerator, never imported by this app (~11 MB)
+#  - installer tooling (pip/setuptools/wheel)
+#  - debug symbols in native extensions (~24 MB)
+#  - LiteLLM proxy admin-UI static bundle (we use the SDK, never the proxy server; ~22 MB)
 RUN pip install --no-compile -r /tmp/requirements.txt \
+ && pip uninstall -y -q hf-xet \
  && pip uninstall -y -q pip setuptools wheel \
  && find /opt/venv -type d -name "__pycache__" -prune -exec rm -r {} + \
+ && find /opt/venv -type f -name "*.so*" -exec strip --strip-unneeded {} + \
  && rm -r /opt/venv/lib/python3.12/site-packages/litellm/proxy/_experimental/out
 
 # ---- test stage (`make test` without a local venv): runtime deps + pytest + tests ----

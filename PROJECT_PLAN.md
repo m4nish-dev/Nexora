@@ -23,9 +23,9 @@ Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = imp
 | Requirement | Status | Evidence |
 |---|---|---|
 | Multi-turn state stored per session; bot remembers earlier messages | PASS (fake provider) / BLOCKED (real model) | pytest `test_multi_turn_sends_full_history`; e2e "turn 2"; live memory test needs keys |
-| ≥2 keys through LiteLLM; fail over on 429 / quota / 5xx | PASS (simulated + real 401) / BLOCKED (real successful key_2) | pytest 429/500/502/503, quota-400, invalid-key-400, timeout; live Gemini 401s failed over to 503 in Docker |
+| ≥2 keys through LiteLLM; fail over on 429 / quota / 5xx | PASS (simulated, HTTP-level stub, real Gemini 401) / BLOCKED (real successful key_2) | pytest 429/500/502/503, quota, invalid key; **HTTP-level:** real `litellm.acompletion` against the Gemini REST stub returning genuine HTTP 429 RESOURCE_EXHAUSTED / 500 / 503 / invalid key → key_2; live Gemini 401s → 503 in Docker |
 | User never sees a broken screen or unhandled exception | PASS | JSON 500 with CORS (fixed this phase); ErrorBoundary; e2e 503 / 422 cards |
-| LiteLLM built-in cache; LLM_CACHE / LIVE_INFERENCE from LiteLLM's own cache-hit flag | PASS (fake provider) / BLOCKED (after a real response) | pytest cache suite; e2e reload → LLM_CACHE at 3 ms |
+| LiteLLM built-in cache; LLM_CACHE / LIVE_INFERENCE from LiteLLM's own cache-hit flag | PASS (fake provider + HTTP stub) / BLOCKED (after a real response) | pytest cache suite; HTTP-level: cache hit never reaches the provider; e2e reload → LLM_CACHE at 3 ms |
 | Per-request token tracking | PASS (fake provider) / BLOCKED (real usage values) | pytest per-request tokens; live test asserts `usage_estimated == false` |
 
 ### §2 Storage
@@ -73,7 +73,7 @@ Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = imp
 |---|---|---|
 | `make up` → backend :8000, frontend :3000 | PASS | `make up` (with `--wait`): both containers healthy |
 | Multi-stage Dockerfiles | PASS | backend builder → runtime (+ separate test stage); frontend node build → nginx |
-| Small runtime images | PARTIAL | frontend 91 MB; backend 597 MB (trimmed from 820 MB). The floor is LiteLLM's dependency tree; numpy is required by soundfile on LiteLLM's cache-hit path |
+| Small runtime images | PARTIAL (at dependency floor) | Content size: frontend 26 MB, backend **124 MB** (was 134 MB). On disk: frontend 91 MB, backend 554 MB (was 597 MB; containerd counts unpacked + blobs). The remaining weight is LiteLLM's *declared* dependencies plus numpy (via soundfile on the cache-hit path), kept on purpose. Each trim is verified by `make test-image` |
 | Root compose, named volume at `/data` | PASS | `nexora-data:/data` |
 | Makefile `up`, `down` (+ `test`) | PASS | All run; `make test` works with or without a local venv |
 | All configuration via env vars | PASS | pydantic-settings; empty values fall back to defaults |
@@ -82,7 +82,7 @@ Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = imp
 | Requirement | Status | Evidence |
 |---|---|---|
 | Layout `/backend /frontend docker-compose.yml Makefile .env.example README.md` | PASS | |
-| Backend tests included | PASS | 89 + opt-in live suite |
+| Backend tests included | PASS | 98 (incl. 9 HTTP-level Gemini tests) + opt-in live suite + runtime-image smoke |
 | `LLM_API_KEYS`, `DATABASE_URL`, `ALLOWED_ORIGINS`, `ENABLE_FAILURE_SIMULATION` (+ extras) in `.env.example`, placeholders only | PASS | Every Settings field listed; secret scan clean |
 | README with the six required headings | PASS (Live URLs pending) | |
 | Public repo, live URLs, demo video, submission form | POSTPONED | Out of scope this phase (repo already exists at m4nish-dev/Nexora from the earlier push) |
@@ -93,6 +93,8 @@ Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = imp
 | Successful real inference, real cache hit after it, real token usage | **BLOCKED**: `.env` still has placeholder keys |
 | Simulated failover answered by a real key_2; invalid real key_1 → real key_2 | **BLOCKED**: same |
 | Real provider *error* path (Gemini 401 → failover → 503, no key leakage) | PASS (local uvicorn and Docker) |
+| `gemini/gemini-2.5-flash` known to LiteLLM 1.110 (provider `gemini`, chat) | PASS. `gemini/gemini-2.0-flash` (the PDF example) is **not** in LiteLLM 1.110's model map. Whether Google serves 2.5-flash to *your* keys is BLOCKED |
+| LiteLLM's Gemini HTTP handler: request, response, usage, error mapping | PASS against a local REST stub (not a substitute for the live run) |
 
 ## 2. Architecture
 
@@ -247,21 +249,28 @@ Prepared but not executed: `render.yaml` (backend, Docker) and `frontend/vercel.
 
 ## 11. Progress log, test results & known issues
 
-### Final audit run (2026-11-21, after this phase's fixes)
+### Final verification run (2026-11-21, phase 3)
 | Check | Result |
 |---|---|
-| `make test` (local venv) | **89 passed, 1 skipped** (live suite, opt-in) |
-| `make test-docker` (Dockerfile test stage) | **89 passed, 1 skipped** |
-| Live suite with placeholder keys | Skipped ("need 2 real keys"); it never passes on mocks |
+| `make test` (local venv) | **98 passed, 1 skipped** (live suite is opt-in) |
+| `make test-docker` (Dockerfile test stage) | **98 passed, 1 skipped** |
+| `make test-image` (inside production image) | **24/24 PASS**: all native extensions load after stripping; real LiteLLM Gemini handler vs stub covers live, cache (2 ms vs 460 ms), multi-turn, simulation, real HTTP 429 failover, 503, 422 |
 | `make test-e2e` (Playwright) | **14 passed, 0 failed** |
-| Mutation checks | Removing the session lock fails the concurrency test; reverting the system-prompt fix fails the Reset e2e test |
 | `npm run build` | OK |
 | `docker compose config -q` | Valid |
-| `make up` | Both containers healthy (`--wait`); backend runs as uid 10001 |
-| Docker endpoint checks | /health 200; real-key 503 exact body; `*=429` and `key_1=429,key_2=500` → 503; 422 (empty / missing / 4001 / malformed JSON / bad header); 404; JSON 405; CORS preflight OK; no key text in logs |
-| Persistence | Rows written before `make down` present after `make up` |
+| `make up` / `make down` | Both exit 0. Both containers healthy; `down` leaves 0 containers; a row written before `down` is served after `up` |
+| Docker endpoint checks | /health 200; 503 exact body (real Gemini rejects placeholders, `key_1=429,key_2=500`, `*=429`); history 404 after failures; 422; frontend `config.js` generated from `API_BASE_URL` |
 | Docker browser check | UI → backend over CORS; readable 503; input cleared |
-| ruff (E, F, W, B, UP, SIM, RUF) | Only cosmetic findings; fixed (zip strict, stale noqa) |
+| ruff, secret scan, ignore rules | Clean |
+| Real-provider suite (`make test-live`) | **BLOCKED**: `.env` has placeholder keys (skipped, never passed) |
+
+### Phase 3 changes
+1. `LLM_API_BASE` (optional provider base URL; also in `.env.example`).
+2. A Gemini REST stub and 9 HTTP-level tests through the production `litellm.acompletion` path. These pin LiteLLM's error normalisation: 503 → 500, invalid key 400 → 401.
+3. `make test-image` runtime-image smoke test.
+4. Backend image trims: strip native debug symbols, drop the unused `hf-xet`; binutils is builder-only.
+5. The `nexora` logger level is now applied even when a library configured logging first.
+6. Found a leftover Vite dev server of mine on `[::1]:3000` that shadowed the Docker frontend for IPv6 `localhost`; stopped it and re-verified the containers.
 
 ### Bugs / gaps found and fixed this phase
 1. `session_id` was trimmed before being echoed (contract: echo of the request value). Now verbatim; blank ids still give 422.
@@ -275,9 +284,10 @@ Prepared but not executed: `render.yaml` (backend, Docker) and `frontend/vercel.
 
 ### Known issues / limitations
 - **Real successful inference is unverified (BLOCKED):** add two real keys to `.env`, then run `make test-live` and `make up && make smoke`.
+- `failed_attempts[].status` is LiteLLM's normalised status (Gemini 503 → 500; invalid key 400 → 401). Classification is unaffected.
 - `gemini/gemini-2.5-flash` availability must be confirmed for the keys used (`LLM_MODEL` is configurable).
 - The in-memory cache resets on restart (LiteLLM 1.110 has no disk backend) and needs a single worker.
-- Backend image 597 MB (see §6 PARTIAL).
+- Backend image: 124 MB content / 554 MB on disk (see §6).
 - A `session_id` containing `/` can be chatted with but not fetched via the history path (path routing); the UI never generates one.
 
 ### Demo video script (2–3 min, POSTPONED)

@@ -2,7 +2,7 @@
 COMPOSE ?= docker compose
 VENV_PY := backend/.venv/bin/python
 
-.PHONY: help up down logs ps restart test test-local test-docker test-live test-e2e smoke clean
+.PHONY: help up down logs ps restart test test-local test-docker test-image test-live test-e2e smoke clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -33,6 +33,11 @@ test-local: ## Backend tests with backend/.venv
 test-docker: ## Backend tests in a throwaway container (Dockerfile "test" stage)
 	docker build --target test -t nexora-backend-test ./backend
 	docker run --rm nexora-backend-test
+
+test-image: ## Smoke-test the production backend image (real LiteLLM Gemini handler vs a local HTTP stub)
+	$(COMPOSE) build backend
+	docker run --rm -v "$(CURDIR)/backend/tests:/app/tests:ro" -v "$(CURDIR)/backend/scripts:/app/scripts:ro" \
+		nexora-backend:latest python -m scripts.image_smoke
 
 test-live: .env ## Real-provider tests using LLM_API_KEYS / LLM_MODEL from .env (costs tokens)
 	@set -a; . ./.env; set +a; cd backend && NEXORA_LIVE=1 .venv/bin/python -m pytest -m live -v -rs

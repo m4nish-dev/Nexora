@@ -23,6 +23,8 @@ logger = logging.getLogger("nexora")
 
 def _configure_logging(level: str) -> None:
     logging.basicConfig(level=level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # basicConfig is a no-op once another library has configured logging, so set our level explicitly.
+    logging.getLogger("nexora").setLevel(level.upper())
     # LiteLLM is chatty and can include request details in debug logs; keep it at WARNING.
     for noisy in ("LiteLLM", "LiteLLM Router", "LiteLLM Proxy", "httpx"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
@@ -46,6 +48,7 @@ def create_app(settings: Settings | None = None, *, completion_fn: CompletionFn 
             pool,
             timeout_seconds=settings.llm_timeout_seconds,
             max_output_tokens=settings.llm_max_output_tokens,
+            api_base=settings.llm_api_base,
             completion_fn=completion_fn,
         )
         app.state.settings = settings

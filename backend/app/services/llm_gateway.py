@@ -172,11 +172,13 @@ class LLMGateway:
         *,
         timeout_seconds: float,
         max_output_tokens: int | None = None,
+        api_base: str | None = None,
         completion_fn: CompletionFn | None = None,
     ) -> None:
         self._pool = pool
         self._timeout = timeout_seconds
         self._max_output_tokens = max_output_tokens
+        self._api_base = api_base
         # Injectable for tests; production always uses LiteLLM directly.
         self._completion_fn = completion_fn or litellm.acompletion
 
@@ -266,6 +268,8 @@ class LLMGateway:
         }
         if self._max_output_tokens:
             kwargs["max_tokens"] = self._max_output_tokens
+        if self._api_base:
+            kwargs["api_base"] = self._api_base
         if bypass_cache_reads:
             kwargs["cache"] = {"no-cache": True}
         if simulated_status is not None:

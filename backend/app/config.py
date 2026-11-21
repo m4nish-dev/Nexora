@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     )
     llm_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     llm_max_output_tokens: int | None = Field(default=None, gt=0)
+    llm_api_base: str | None = Field(
+        default=None, description="Optional provider base URL override (corporate proxy / HTTP-level test stub)"
+    )
 
     # --- cache ---------------------------------------------------------------
     cache_enabled: bool = True
