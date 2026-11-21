@@ -41,7 +41,7 @@ class KeyPool:
             logger.warning("LLM_API_KEYS contains duplicate keys; failover between identical keys is ineffective")
         if 0 < len(secrets) < 2:
             logger.warning("only %d API key configured; the assignment expects at least 2 for failover", len(secrets))
-        return cls([ApiKey(key_id=f"key_{i}", model=m, secret=s) for i, (s, m) in enumerate(zip(secrets, models), 1)])
+        return cls([ApiKey(key_id=f"key_{i}", model=m, secret=s) for i, (s, m) in enumerate(zip(secrets, models, strict=True), 1)])
 
     def __iter__(self) -> Iterator[ApiKey]:
         return iter(self._keys)

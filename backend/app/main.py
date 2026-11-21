@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings
 from app.database import Database
-from app.errors import register_exception_handlers
+from app.errors import UnhandledErrorMiddleware, register_exception_handlers
 from app.repositories.messages import MessageRepository
 from app.routers import chat, health, sessions
 from app.services.chat_service import ChatService
@@ -69,6 +69,8 @@ def create_app(settings: Settings | None = None, *, completion_fn: CompletionFn 
         lifespan=lifespan,
     )
     allow_all = settings.cors_origins == ["*"]
+    # Order matters: the last middleware added is the outermost, so CORS wraps the error layer.
+    app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"] if allow_all else settings.cors_origins,

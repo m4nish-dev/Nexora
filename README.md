@@ -42,9 +42,17 @@ make up                     # builds and starts both services
 
 - Frontend: <http://localhost:3000>
 - Backend: <http://localhost:8000> (`GET /health`, OpenAPI docs at `/docs`)
+- `make up` waits until both containers report healthy.
 - `make down` stops the stack. The SQLite file stays on the named volume `nexora-data` (mounted at `/data`), so history survives restarts.
 - `make clean` also deletes that volume.
-- Other targets: `make logs`, `make ps`, `make test`.
+
+| Target | What it does |
+|---|---|
+| `make test` | Backend test suite (uses `backend/.venv` if present, otherwise runs inside Docker) |
+| `make test-e2e` | Playwright browser suite against a test-only backend on ports 8100/3100 |
+| `make test-live` | Real-provider tests with the keys in `.env` (costs tokens) |
+| `make smoke` | curl checks against a running backend (`BASE_URL=…` to override) |
+| `make logs` / `make ps` | Container logs / status |
 
 If `.env` is missing, `make up` creates it from `.env.example`. The stack still starts, but chat returns 503 until real keys are configured.
 
@@ -58,7 +66,7 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 export LLM_API_KEYS="key-one,key-two" DATABASE_URL="sqlite:///./data/app.db" ENABLE_FAILURE_SIMULATION=true
 uvicorn app.main:app --port 8000
-pytest -q                   # 86 tests, no network needed
+pytest -q                   # 89 tests (+ opt-in live suite), no network needed
 ```
 
 Frontend (Node 20+):
@@ -67,6 +75,8 @@ Frontend (Node 20+):
 cd frontend
 npm install
 VITE_API_BASE_URL=http://localhost:8000 npm run dev   # http://localhost:3000
+npx playwright install chromium                      # once, for the browser tests
+npm run test:e2e                                     # 14 browser tests
 ```
 
 ### Environment variables
@@ -149,6 +159,7 @@ For a targeted key, the gateway passes the matching **LiteLLM exception as `mock
 - **Non-blocking:** each DB call is a short-lived connection run via `asyncio.to_thread`, so the event loop never blocks on disk.
 - **Ordering:** history is ordered by the monotonic `id`, oldest first. `created_at` is server UTC ISO-8601.
 - **System prompt precedence:** the request's `system_prompt`, then the session's stored prompt, then the default. The prompt is part of the cache key.
+  - The UI always sends the effective prompt: the custom one, or the backend default from `/health`. That way **Reset** takes effect within the same session, and default-prompt requests share cache entries with clients that omit the field.
 
 ### Other decisions
 
@@ -156,9 +167,13 @@ For a targeted key, the gateway passes the matching **LiteLLM exception as `mock
   - If a provider ever omits usage, LiteLLM's tokenizer estimates it and `usage_estimated: true` is returned. Values are never invented.
 - **Latency:** `time.perf_counter()` from the start of the handler to just before persistence. It is an integer in milliseconds.
 - **Errors:** every error is JSON with `detail`. Custom handlers cover domain errors, Starlette 404/405, SQLite errors (503) and anything unexpected (500, logged server-side, no traceback).
+  - Unexpected errors are caught by a middleware that sits *inside* CORS, so even a 500 carries `Access-Control-Allow-Origin` and the browser shows the error instead of "network error".
+- **`session_id`** is echoed back verbatim, per the contract's "echo of the request value". A whitespace-only id is rejected with 422.
 - **Frontend runtime config:** the nginx container writes `config.js` from `API_BASE_URL` at start, so one image works anywhere. Vercel uses `VITE_API_BASE_URL` at build time.
 - **Images:**
-  - Backend: multi-stage, a slim runtime with only the venv and app, a non-root user, and no bytecode, pip, or LiteLLM proxy UI assets (820 MB → about 600 MB). The rest is LiteLLM's own dependency tree.
+  - Backend: multi-stage, a slim runtime with only the venv and app, a non-root user, and no bytecode, pip, or LiteLLM proxy UI assets (820 MB → 597 MB).
+    - The rest is LiteLLM's own dependency tree: `openai`, `boto3`, `tokenizers`, `huggingface_hub`, plus `numpy`, which comes in through `soundfile` on LiteLLM's cache-hit import path.
+    - A separate `test` stage runs the suite and is never part of the runtime image.
   - Frontend: multi-stage, unprivileged nginx at about 90 MB.
 
 ---
@@ -205,15 +220,38 @@ curl -s $B/sessions/s-1/messages
 
 ### Automated tests
 
-`make test` (or `cd backend && pytest -q`) runs **86 tests** with no network:
+There are three suites, kept deliberately separate so mocked results are never mistaken for real inference.
+
+**1. Backend: `make test` (89 tests, no network).**
 - **Health:** ok, DB down, no keys, key count, cache flag.
 - **Validation:** empty or whitespace message, more than 4000 characters (counted after trimming), session id bounds, wrong types, malformed JSON.
 - **Chat:** contract shape, multi-turn context, per-request tokens, system prompt handling.
 - **Cache:** live → cached across sessions, identical reply and usage, different message, history or system prompt never cached, cache hit faster than live.
 - **Failover:** 429, 500, 502 and 503 on `key_1`; all-fail 503; `*`; precedence; three-key pools; real (non-simulated) provider errors including invalid-key and quota 400s; non-retryable 400s; key redaction; disabled hook; malformed header.
 - **Persistence:** isolation, ordering, restart survival, schema, nothing persisted on failure, concurrent same-session turns.
+- **HTTP hygiene:** verbatim `session_id` echo, JSON 405, JSON 500 with CORS headers, CORS allow and deny.
 
 Provider responses are injected through LiteLLM's own `mock_response`, so the real LiteLLM cache and exception code runs in every test.
+
+**2. Browser: `make test-e2e` (14 Playwright tests).** These run against the built frontend and `backend/tests/e2e_server.py`, a test-only server that is the real app with the same fake provider. They cover:
+- every `data-testid`
+- input clearing, Enter and Shift+Enter
+- per-reply metadata, and growing input tokens across turns
+- failover via the UI
+- readable 503 and 422 cards, and Retry
+- system prompt apply and Reset
+- the history endpoint
+- a new session on reload, and `LLM_CACHE` for the same first message
+- dark theme, mobile drawer, and no overflow at mobile or tablet widths
+
+**3. Real provider: `make test-live` (opt-in).** These make genuine LiteLLM calls with the keys in `.env`, covering:
+- live inference followed by a real cache hit
+- multi-turn memory
+- simulated `key_1=429`/`500` answered by the real `key_2`
+- `key_1=429,key_2=500` returning 503
+- a genuinely invalid `key_1` rejected by the provider and failing over to a real key
+
+The suite is skipped (never passed) without `NEXORA_LIVE=1` and two real keys.
 
 ---
 
@@ -265,7 +303,7 @@ backend/
       llm_gateway.py         LiteLLM cache + ordered failover + classification
       chat_service.py        orchestration, per-session locks
     routers/                 health, chat, sessions
-  tests/                     pytest suite (86 tests)
+  tests/                     pytest suite (89 tests) + opt-in live suite + e2e_server.py (test-only)
   scripts/smoke_test.sh      live end-to-end check
   Dockerfile
 frontend/
@@ -273,6 +311,7 @@ frontend/
     components/              Sidebar, Composer, Messages, MetaBar, WelcomeScreen, ui/
     hooks/                   useChat, useHealth, useTheme, useAutoScroll
     lib/                     api client, session ids, formatting
+  e2e/                       Playwright browser suite + runner
   docker/                    nginx.conf, runtime config entrypoint
   Dockerfile
 docker-compose.yml  Makefile  .env.example  render.yaml

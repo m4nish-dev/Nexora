@@ -5,71 +5,94 @@ Stack (mandated): React (Vite) · FastAPI · LiteLLM · SQLite · Docker.
 
 ---
 
-## 1. Requirement checklist (source of truth: assignment PDF, pp. 1–6)
+## 1. Assignment compliance audit (source of truth: the PDF, re-read 2026-11-21)
 
-Legend: ✅ done & verified · 🟡 in progress · ⬜ pending · 🔒 needs user action
+Statuses: **PASS** = implemented and verified by running it · **PARTIAL** = implemented but incomplete or not fully verifiable · **FAIL** = missing or broken · **BLOCKED** = needs an external credential or service.
+"Fake provider" means the real app, real LiteLLM cache and real failover code, with only the provider network hop replaced by LiteLLM's `mock_response`.
 
-### Frontend (UI) — §2, §5
-| # | Requirement | Status |
+**Phase scope:** GitHub publishing, deployment, live URLs and the demo video are **POSTPONED** for this phase (local completion only).
+
+### §2 Frontend (UI)
+| Requirement | Status | Evidence |
 |---|---|---|
-| F1 | Clean UI to send messages and view a multi-turn conversation | ✅ |
-| F2 | Per-reply metadata: resolution source, model, latency (ms), input/output tokens (per request, never totals) | ✅ |
-| F3 | Optional system-prompt field (`system-prompt-input`) | ✅ |
-| F4 | `data-testid`s: chat-input, send-button, assistant-message, meta-source, meta-model, meta-latency, meta-input-tokens, meta-output-tokens, system-prompt-input | ✅ |
-| F5 | chat-input empty after sending; Enter sends; Shift+Enter newline | ✅ |
-| F6 | New session on every page load | ✅ |
-| F7 | 422 / 503 / network errors shown as readable chat messages, never a blank screen | ✅ |
-| F8 | Deployed frontend talks to deployed backend; backend allows that origin (CORS) | 🔒 |
+| Clean UI to send messages and view a multi-turn conversation | PASS | e2e: send, multi-turn, history; screenshots desktop / tablet / mobile / dark |
+| Per-reply source, model, latency (ms), input/output tokens for that request only | PASS | e2e checks every reply has its own `meta-*`; input tokens grow per turn (not totals) |
+| Optional system-prompt field | PASS | e2e: Apply changes the reply; Reset restores the default in the same session (bug fixed this phase) |
 
-### Backend & LiteLLM — §2, §3, §4
-| # | Requirement | Status |
+### §2 Backend & LiteLLM gateway
+| Requirement | Status | Evidence |
 |---|---|---|
-| B1 | `GET /health` → `{status, keys_configured, cache_enabled}`; 200 only when DB reachable and key pool loaded | ✅ |
-| B2 | `POST /chat` request validation: session_id 1–128, message 1–4000 after trim, optional system_prompt | ✅ |
-| B3 | `POST /chat` response: `session_id`, `reply`, `metadata{resolution_source, model, latency_ms, input_tokens, output_tokens, key_id, fallback_attempts}` | ✅ |
-| B4 | `GET /sessions/{id}/messages` oldest-first, no system prompt, assistant metadata; 404 `session not found` | ✅ |
-| B5 | Multi-turn: history per session in SQLite; client sends only the new message | ✅ |
-| B6 | Key pool from `LLM_API_KEYS` (≥2), ids `key_1..key_n`; never expose raw keys | ✅ |
-| B7 | Failover on 429 / quota / 5xx to next key; 503 `all providers unavailable` when all fail | ✅ |
-| B8 | LiteLLM built-in cache; `LLM_CACHE` vs `LIVE_INFERENCE` from LiteLLM's own cache-hit flag | ✅ |
-| B9 | Cache key = model + full message list; same first message in new session → `LLM_CACHE`; different message never cached | ✅ |
-| B10 | Cache hit: identical reply, stored usage, `key_id=null`, `fallback_attempts=0`, faster than live | ✅ |
-| B11 | Per-request tokens (system + history + new message), never running totals | ✅ |
-| B12 | Server-measured integer `latency_ms` | ✅ |
-| B13 | Errors are JSON with `detail`; never stack traces/HTML; 422 / 503 / 404 exact | ✅ |
-| B14 | Failed requests (422/503) not added to history | ✅ |
-| B15 | `X-Simulate-Failure` (`key_1=429`, `key_1=429,key_2=500`, `*=429`; 429/500/502/503), per-request only, gated by `ENABLE_FAILURE_SIMULATION=true` | ✅ |
-| B16 | Simulated request still returns a real LLM answer from the surviving key | ✅ (mocked) / 🔒 (live needs keys) |
+| Multi-turn state stored per session; bot remembers earlier messages | PASS (fake provider) / BLOCKED (real model) | pytest `test_multi_turn_sends_full_history`; e2e "turn 2"; live memory test needs keys |
+| ≥2 keys through LiteLLM; fail over on 429 / quota / 5xx | PASS (simulated + real 401) / BLOCKED (real successful key_2) | pytest 429/500/502/503, quota-400, invalid-key-400, timeout; live Gemini 401s failed over to 503 in Docker |
+| User never sees a broken screen or unhandled exception | PASS | JSON 500 with CORS (fixed this phase); ErrorBoundary; e2e 503 / 422 cards |
+| LiteLLM built-in cache; LLM_CACHE / LIVE_INFERENCE from LiteLLM's own cache-hit flag | PASS (fake provider) / BLOCKED (after a real response) | pytest cache suite; e2e reload → LLM_CACHE at 3 ms |
+| Per-request token tracking | PASS (fake provider) / BLOCKED (real usage values) | pytest per-request tokens; live test asserts `usage_estimated == false` |
 
-### Storage — §2
-| # | Requirement | Status |
+### §2 Storage
+| Requirement | Status | Evidence |
 |---|---|---|
-| S1 | SQLite only (no Redis/Postgres) | ✅ |
-| S2 | DB path from `DATABASE_URL` (e.g. `sqlite:////data/app.db`) on a Docker volume | ✅ |
-| S3 | Schema auto-created on startup; `messages` table matches the minimal model | ✅ |
+| SQLite only (no Redis / Postgres) | PASS | Only `sqlite3`; LiteLLM cache is `type="local"` |
+| DB under a Docker volume via `DATABASE_URL`; survives restarts | PASS | Docker: `/data/app.db` on `nexora_nexora-data`; rows survived several `make down` / `make up` cycles |
+| Schema created automatically | PASS | `Database.initialize()` in lifespan; fresh-volume start verified |
+| `messages` table matches the minimal model | PASS | `test_stored_rows_match_schema` |
 
-### Docker / repo / docs — §6, §7
-| # | Requirement | Status |
+### §3 API contract
+| Requirement | Status | Evidence |
 |---|---|---|
-| D1 | `make up` → backend :8000, frontend :3000 | ✅ |
-| D2 | Multi-stage Dockerfiles (backend + frontend), small runtime images | ✅ |
-| D3 | Root `docker-compose.yml`, named volume at `/data` | ✅ |
-| D4 | Makefile with `up`, `down` | ✅ |
-| D5 | All config via env vars; `.env.example` lists every variable | ✅ |
-| D6 | Repo layout `/backend /frontend docker-compose.yml Makefile .env.example README.md` | ✅ |
-| D7 | Backend tests | ✅ |
-| D8 | README with the six required headings | ✅ |
+| `GET /health` → `{status, keys_configured, cache_enabled}`; 200 only when DB and key pool are OK | PASS | pytest (ok, DB down 503, no keys 503); Docker curl 200 |
+| `POST /chat` validation (session_id 1–128, message 1–4000 after trim, optional system_prompt) | PASS | pytest 11 cases + boundaries; Docker curl 422s (empty, missing, 4001, malformed JSON) |
+| `session_id` echoed verbatim | PASS | Was trimmed before (contract deviation); fixed and tested this phase |
+| Response fields `reply, resolution_source, model, latency_ms, input_tokens, output_tokens, key_id, fallback_attempts` | PASS | `test_chat_success_matches_contract` |
+| `GET /sessions/{id}/messages`: oldest first, no system prompt, assistant metadata; 404 for unknown | PASS | pytest history tests; e2e history check; Docker curl 404 |
+| Every error is JSON `detail`, no traceback / HTML; failed requests not stored | PASS | pytest 404 / 405 / 500 / 502 / 503; nothing persisted on 422 / 502 / 503 |
+| Cache key = model + full message list; same first message in a new session hits; different message never does | PASS | pytest: different message / history / system prompt → LIVE |
+| Cache hit: identical reply, stored tokens, `key_id` null | PASS (fake provider) / BLOCKED (real) | pytest + e2e |
+| Tokens per request; equal-length first messages ≈ same input_tokens | PASS (fake provider) / BLOCKED (real) | `test_equal_length_first_messages_report_same_input_tokens` |
+| Integer `latency_ms`; cache hit faster than live | PASS | pytest controlled-delay test; uvicorn 945 ms live vs 2–3 ms cached |
 
-### Deployment & submission — §2, §7
-| # | Requirement | Status |
+### §4 Failover test hook
+| Requirement | Status | Evidence |
 |---|---|---|
-| X1 | Public frontend URL | 🔒 |
-| X2 | Public backend URL with `ENABLE_FAILURE_SIMULATION=true` | 🔒 |
-| X3 | Public GitHub repo | 🔒 (on hold until user approves) |
-| X4 | 2–3 min demo video (cache hit + failover) | 🔒 |
-| X5 | Submission form | 🔒 |
+| Header format, `*`, statuses 429/500/502/503 | PASS | pytest parser tests; malformed → 422 |
+| Failure raised inside LiteLLM's call path, this request only, keys not disabled | PASS | `mock_response=<LiteLLM exception>`; `test_simulation_is_scoped_to_one_request` |
+| `key_1=429` / `key_1=500` → 200, key_2 | PASS (fake provider) / BLOCKED (real key_2 answer) | pytest + e2e UI; `test_live_simulated_failover_returns_real_answer` ready |
+| `key_1=429,key_2=500` and `*=429` → 503, nothing added to history | PASS | pytest; Docker curl (exact body), history 404 |
+| Honoured only when `ENABLE_FAILURE_SIMULATION=true` | PASS | `test_simulation_ignored_when_disabled` |
 
----
+### §5 Frontend contract
+| Requirement | Status | Evidence |
+|---|---|---|
+| `chat-input`, `send-button`, `assistant-message`, `meta-source`, `meta-model`, `meta-latency`, `meta-input-tokens`, `meta-output-tokens`, `system-prompt-input` | PASS | e2e presence and exact-content checks (`^\d+ ms$`, integers, exact source strings) |
+| Input empty after sending; Enter sends; Shift+Enter newline | PASS | e2e |
+| New session on each page load | PASS | e2e: session id changes, messages cleared |
+| 422 / 503 readable in chat, never blank | PASS | e2e (fake backend) and Docker browser check (real 503) |
+| Deployed frontend ↔ backend, CORS | PASS locally (Docker, CORS verified) / POSTPONED (deployment) | |
+
+### §6 Docker
+| Requirement | Status | Evidence |
+|---|---|---|
+| `make up` → backend :8000, frontend :3000 | PASS | `make up` (with `--wait`): both containers healthy |
+| Multi-stage Dockerfiles | PASS | backend builder → runtime (+ separate test stage); frontend node build → nginx |
+| Small runtime images | PARTIAL | frontend 91 MB; backend 597 MB (trimmed from 820 MB). The floor is LiteLLM's dependency tree; numpy is required by soundfile on LiteLLM's cache-hit path |
+| Root compose, named volume at `/data` | PASS | `nexora-data:/data` |
+| Makefile `up`, `down` (+ `test`) | PASS | All run; `make test` works with or without a local venv |
+| All configuration via env vars | PASS | pydantic-settings; empty values fall back to defaults |
+
+### §7 Repository / env / docs
+| Requirement | Status | Evidence |
+|---|---|---|
+| Layout `/backend /frontend docker-compose.yml Makefile .env.example README.md` | PASS | |
+| Backend tests included | PASS | 89 + opt-in live suite |
+| `LLM_API_KEYS`, `DATABASE_URL`, `ALLOWED_ORIGINS`, `ENABLE_FAILURE_SIMULATION` (+ extras) in `.env.example`, placeholders only | PASS | Every Settings field listed; secret scan clean |
+| README with the six required headings | PASS (Live URLs pending) | |
+| Public repo, live URLs, demo video, submission form | POSTPONED | Out of scope this phase (repo already exists at m4nish-dev/Nexora from the earlier push) |
+
+### Real-provider verification
+| Check | Status |
+|---|---|
+| Successful real inference, real cache hit after it, real token usage | **BLOCKED**: `.env` still has placeholder keys |
+| Simulated failover answered by a real key_2; invalid real key_1 → real key_2 | **BLOCKED**: same |
+| Real provider *error* path (Gemini 401 → failover → 503, no key leakage) | PASS (local uvicorn and Docker) |
 
 ## 2. Architecture
 
@@ -196,20 +219,19 @@ CREATE TABLE IF NOT EXISTS sessions (      -- extra table: per-session system pr
 Starlette's 404/405 responses are also JSON.
 
 ## 7. Testing strategy
-- **pytest + TestClient** with a temporary SQLite file per test and a fresh LiteLLM cache per test.
-- LLM calls are deterministic through LiteLLM's own `mock_response` (and mocked exceptions), so the **real** LiteLLM cache and exception-mapping code runs with no network.
-- Areas covered: health (ok, DB down, key count), validation (empty, whitespace, >4000, session id bounds, malformed JSON), multi-turn context, system prompt, cache (hit/miss, identical reply, preserved usage, different messages, latency), failover (429, 500, 502, 503, all-fail, `*`, disabled flag, unknown key, malformed header), persistence (isolation, order, metadata, nothing persisted on failure), and real-error classification.
-- A separate `scripts/smoke_test.sh` runs against a live backend with real keys.
+- **Backend (`make test`, 89 tests):** pytest + TestClient. Each test gets a temporary SQLite file and a fresh LiteLLM cache. Provider calls are faked with LiteLLM's own `mock_response`, so the real cache and exception mapping run.
+- **Browser (`make test-e2e`, 14 tests):** Playwright against the production build and `backend/tests/e2e_server.py` (test-only), on ports 8100/3100.
+- **Real provider (`make test-live`):** genuine LiteLLM calls with `.env` keys. Opt-in, and skipped (never passed) without real keys.
+- **Smoke (`make smoke`):** curl checks against any running backend.
+- **Mutation checks** confirm the concurrency and system-prompt tests actually detect regressions.
 
 ## 8. Docker architecture
 - **backend:** `python:3.12-slim` builder (wheels into a venv) → slim runtime copying the venv; non-root user; `/data` volume; healthcheck on `/health`.
 - **frontend:** `node:22-alpine` build → `nginx:alpine` serving static files on :3000. An entrypoint writes `config.js` from `API_BASE_URL` at container start, so the same image works in any environment.
 - **compose:** `backend` (8000), `frontend` (3000), named volume `nexora-data:/data`, env from `.env`.
 
-## 9. Deployment plan
-- **Backend → Render (Docker)** with `render.yaml`. Set env vars in the dashboard: `LLM_API_KEYS`, `ENABLE_FAILURE_SIMULATION=true`, `ALLOWED_ORIGINS=<frontend URL>`, `DATABASE_URL=sqlite:////data/app.db`. Attaching a persistent disk at `/data` needs a paid plan; without it SQLite works but resets on redeploy (documented).
-- **Frontend → Vercel** (Vite preset, root `frontend/`, `VITE_API_BASE_URL=<backend URL>`).
-- Deployment and GitHub publishing are **on hold until the user explicitly approves.**
+## 9. Deployment plan: POSTPONED this phase
+Prepared but not executed: `render.yaml` (backend, Docker) and `frontend/vercel.json`. Do not deploy or push until the user says so.
 
 ## 10. Security considerations
 - Keys only ever come from env vars. They're held in memory, never logged (logs show `key_1`, …), and never returned.
@@ -223,45 +245,45 @@ Starlette's 404/405 responses are also JSON.
 - The simulation hook is off unless `ENABLE_FAILURE_SIMULATION=true`.
 - Containers run as a non-root user.
 
-## 11. Implementation phases
-1. ✅ Analysis & plan
-2. ✅ Foundation (venv, deps, structure)
-3. ✅ Backend core (DB, schemas, routes)
-4. ✅ AI gateway (LiteLLM, key pool, failover, cache, simulation)
-5. ✅ Frontend
-6. 🟡 Integration (local + Docker with LiteLLM-mocked provider ✅; real Gemini error path ✅; real successful completions 🔒 need keys)
-7. ✅ Tests
-8. ✅ Docker (`make up` / `make down` / volume persistence verified)
-9. 🔒 Deployment
-10. 🟡 Final QA ✅, README ✅, demo script ✅ (below); live-URL QA 🔒
+## 11. Progress log, test results & known issues
 
----
-
-## 12. Progress log, test results & known issues
-
-### Verified (2026-11-21)
+### Final audit run (2026-11-21, after this phase's fixes)
 | Check | Result |
 |---|---|
-| Backend unit/integration tests (`pytest -q`) | **86 passed** |
-| Concurrency test is meaningful | Fails with the session lock removed, passes with it in place (mutation check) |
-| LiteLLM behaviour probes (v1.110.2) | `api_key` excluded from cache key ✓ · `_hidden_params["cache_hit"]` ✓ · usage preserved on hit ✓ · mock exceptions raise typed errors with status ✓ · cache write is a background task, so the gateway awaits it ✓ |
-| Real Gemini error path | Invalid keys → live 401 from Google → classified key-level → failover → 503 JSON; no key text in logs ✓ |
-| Cache-hit latency (uvicorn) | Live ≈ 945 ms vs cache 2–3 ms, identical reply and usage ✓ |
-| Browser e2e (Playwright, Chromium) | All `data-testid`s present; input clears; Enter / Shift+Enter; per-message metadata; LIVE → LLM_CACHE after reload; failover via lab (key_2 + chip); 503 and 422 readable cards; Retry; new session per load; no horizontal overflow at 390 px ✓ |
-| Docker | `make up` builds both images; both containers healthy; frontend ↔ backend via CORS in a real browser; history survives `make down` → `make up` on the `nexora-data` volume ✓ |
-| Image sizes | backend 597 MB (from 820 MB after trimming; the remainder is LiteLLM's dependency tree), frontend 91 MB |
+| `make test` (local venv) | **89 passed, 1 skipped** (live suite, opt-in) |
+| `make test-docker` (Dockerfile test stage) | **89 passed, 1 skipped** |
+| Live suite with placeholder keys | Skipped ("need 2 real keys"); it never passes on mocks |
+| `make test-e2e` (Playwright) | **14 passed, 0 failed** |
+| Mutation checks | Removing the session lock fails the concurrency test; reverting the system-prompt fix fails the Reset e2e test |
+| `npm run build` | OK |
+| `docker compose config -q` | Valid |
+| `make up` | Both containers healthy (`--wait`); backend runs as uid 10001 |
+| Docker endpoint checks | /health 200; real-key 503 exact body; `*=429` and `key_1=429,key_2=500` → 503; 422 (empty / missing / 4001 / malformed JSON / bad header); 404; JSON 405; CORS preflight OK; no key text in logs |
+| Persistence | Rows written before `make down` present after `make up` |
+| Docker browser check | UI → backend over CORS; readable 503; input cleared |
+| ruff (E, F, W, B, UP, SIM, RUF) | Only cosmetic findings; fixed (zip strict, stale noqa) |
+
+### Bugs / gaps found and fixed this phase
+1. `session_id` was trimmed before being echoed (contract: echo of the request value). Now verbatim; blank ids still give 422.
+2. Unexpected 500s lacked CORS headers, so the browser reported a network error instead of the JSON. Added an inner `UnhandledErrorMiddleware`.
+3. System prompt **Reset** had no effect within a session (the backend kept the stored custom prompt when the field was omitted). The UI now always sends the effective prompt.
+4. Browser tests existed only outside the repo. Added `frontend/e2e` (Playwright) and a test-only `backend/tests/e2e_server.py`.
+5. No real-provider test suite. Added `backend/tests/test_live_provider.py` (opt-in, never passes on placeholders).
+6. `make test` required a local venv. It now falls back to a Docker test stage; added `test-e2e`, `test-live`, `smoke`.
+7. `make up` didn't confirm health. It now uses `--wait`.
+8. Lint: `zip(..., strict=True)`, stale `noqa` and `eslint` comments.
 
 ### Known issues / limitations
-- **No real successful completion has run yet**: it needs two real provider keys. Run `backend/scripts/smoke_test.sh` once keys are set.
-- The default model `gemini/gemini-2.5-flash` must be confirmed available for the keys used (`LLM_MODEL` is configurable).
-- The cache is in-memory (LiteLLM 1.110 removed the disk backend), so it resets on restart; it requires a single worker.
-- Render free tier has no persistent disk, so deployed history resets on redeploy (a paid disk at `/data` fixes this).
-- LiteLLM 1.110's cache-hit path imports proxy modules that need `orjson` + `soundfile` (pinned; checked at startup).
+- **Real successful inference is unverified (BLOCKED):** add two real keys to `.env`, then run `make test-live` and `make up && make smoke`.
+- `gemini/gemini-2.5-flash` availability must be confirmed for the keys used (`LLM_MODEL` is configurable).
+- The in-memory cache resets on restart (LiteLLM 1.110 has no disk backend) and needs a single worker.
+- Backend image 597 MB (see §6 PARTIAL).
+- A `session_id` containing `/` can be chatted with but not fetched via the history path (path routing); the UI never generates one.
 
-### Demo video script (2–3 min)
-1. (15 s) Repo layout + `make up`; open `/health` on the live backend.
-2. (30 s) Live UI: ask a question, then point at the metadata (LIVE_INFERENCE, model, latency, in/out tokens, key_1).
-3. (25 s) Multi-turn: "My name is Ada" → "What's my name?"; show `GET /sessions/{id}/messages`.
-4. (25 s) Cache: New chat → same first question → LLM_CACHE, identical text, ~ms latency, key_id null.
-5. (35 s) Failover: Failover lab `key_1 → 429` → key_2 + "1 failover"; curl `X-Simulate-Failure: key_1=500` → key_2; `*=429` → 503 card and curl 503, history 404.
-6. (15 s) 422 via curl (empty message); close on the design decisions (README §3).
+### Demo video script (2–3 min, POSTPONED)
+1. (15 s) Repo layout + `make up`; open `/health`.
+2. (30 s) Ask a question; show the metadata (LIVE_INFERENCE, model, latency, tokens, key_1).
+3. (25 s) Multi-turn memory; `GET /sessions/{id}/messages`.
+4. (25 s) New chat → same first question → LLM_CACHE, identical text, ms latency.
+5. (35 s) Failover lab `key_1 → 429` → key_2; curl `key_1=500`; `*=429` → 503 and history 404.
+6. (15 s) 422 via curl; close on README §3.

@@ -11,6 +11,7 @@ import sqlite3
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger("nexora.errors")
 
@@ -44,6 +45,39 @@ class SessionNotFound(AppError):
 
 class InvalidSimulationHeader(AppError):
     status_code = 422
+
+
+class UnhandledErrorMiddleware:
+    """Turn any unexpected exception into a JSON 500 *inside* CORSMiddleware.
+
+    Starlette's catch-all ``Exception`` handler runs in the outermost middleware, i.e. outside CORS,
+    so its response carries no ``Access-Control-Allow-Origin`` and the browser would report a
+    network failure instead of the JSON body. Registered before CORS, this layer sits inside it.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        response_started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception:
+            logger.exception("unhandled error on %s %s", scope.get("method"), scope.get("path"))
+            if response_started:
+                raise
+            response = JSONResponse(status_code=500, content={"detail": "internal server error"})
+            await response(scope, receive, send)
 
 
 def register_exception_handlers(app: FastAPI) -> None:

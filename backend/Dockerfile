@@ -13,6 +13,18 @@ RUN pip install --no-compile -r /tmp/requirements.txt \
  && find /opt/venv -type d -name "__pycache__" -prune -exec rm -r {} + \
  && rm -r /opt/venv/lib/python3.12/site-packages/litellm/proxy/_experimental/out
 
+# ---- test stage (`make test` without a local venv): runtime deps + pytest + tests ----
+# Not part of the runtime image: `docker compose` builds the final stage only.
+FROM python:3.12-slim AS test
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 LITELLM_LOCAL_MODEL_COST_MAP=True PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install -r requirements-dev.txt
+COPY pytest.ini ./
+COPY app ./app
+COPY tests ./tests
+CMD ["python", "-m", "pytest", "-q", "-rs"]
+
 # ---- runtime stage: slim image with only the venv and application code ----
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \

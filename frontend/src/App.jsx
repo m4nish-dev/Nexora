@@ -74,13 +74,15 @@ export default function App() {
     (text) => {
       pin();
       const sent = chat.send(text, {
-        systemPrompt: systemPrompt || undefined,
+        // Always send the effective prompt (custom, else the backend default). Omitting it would make
+        // the backend keep a previously stored custom prompt, so "Reset" would silently not apply.
+        systemPrompt: systemPrompt || health.data?.default_system_prompt || undefined,
         simulateFailure: simulation || undefined,
       });
       if (sent && simulation) setSimulation(null); // the hook applies to one request only
       return sent;
     },
-    [chat, pin, simulation, systemPrompt],
+    [chat, health.data?.default_system_prompt, pin, simulation, systemPrompt],
   );
 
   const newChat = useCallback(() => {

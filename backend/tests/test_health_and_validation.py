@@ -141,3 +141,26 @@ def test_database_url_parsing():
 def test_per_key_models(client_factory):
     client = client_factory(llm_api_keys="a,b", llm_key_models=",openai/gpt-4o-mini")
     assert client.get("/health").json()["models"] == ["gemini/gemini-2.5-flash", "openai/gpt-4o-mini"]
+
+
+def test_session_id_is_echoed_verbatim(client):
+    response = client.post("/chat", json={"session_id": " s-pad ", "message": "hi"})
+    assert response.status_code == 200
+    assert response.json()["session_id"] == " s-pad "
+
+
+def test_unexpected_error_is_json_500_with_cors(client):
+    client.app.state.chat_service._gateway = None  # force an unexpected AttributeError in the handler
+    response = client.post(
+        "/chat", json={"session_id": "s-boom", "message": "hi"}, headers={"Origin": "http://localhost:3000"}
+    )
+    assert response.status_code == 500
+    assert response.json() == {"detail": "internal server error"}
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "Traceback" not in response.text
+
+
+def test_wrong_method_is_json(client):
+    response = client.get("/chat")
+    assert response.status_code == 405
+    assert response.json() == {"detail": "Method Not Allowed"}

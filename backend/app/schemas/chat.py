@@ -8,7 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 ResolutionSource = Literal["LIVE_INFERENCE", "LLM_CACHE"]
 
-SessionId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+# session_id is echoed back verbatim (contract: "echo of the request value"), so it is not trimmed;
+# a whitespace-only id is rejected as empty.
+SessionId = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 MessageText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
 SYSTEM_PROMPT_MAX_CHARS = 8000
@@ -20,6 +22,13 @@ class ChatRequest(BaseModel):
     session_id: SessionId
     message: MessageText
     system_prompt: str | None = Field(default=None, max_length=SYSTEM_PROMPT_MAX_CHARS)
+
+    @field_validator("session_id")
+    @classmethod
+    def _session_id_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("session_id must not be blank")
+        return value
 
     @field_validator("system_prompt")
     @classmethod

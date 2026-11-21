@@ -28,7 +28,7 @@ export function useAutoScroll(deps) {
     if (pinnedRef.current) {
       requestAnimationFrame(() => scrollToBottom("smooth"));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `deps` is supplied by the caller (message count, pending state): re-pin whenever they change.
   }, deps);
 
   return { containerRef, onScroll, showJump, scrollToBottom, pin: () => (pinnedRef.current = true) };

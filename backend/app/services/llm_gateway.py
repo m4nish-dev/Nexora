@@ -197,7 +197,7 @@ class LLMGateway:
                 response = await self._completion_fn(
                     **self._request_kwargs(key, messages, simulated_status, bypass_cache_reads)
                 )
-            except Exception as exc:  # noqa: BLE001 — every provider failure is classified below
+            except Exception as exc:  # every provider failure is classified below
                 verdict = classify_provider_error(exc)
                 logger.warning(
                     "llm attempt failed key_id=%s model=%s status=%s retryable=%s simulated=%s error=%s: %s",
